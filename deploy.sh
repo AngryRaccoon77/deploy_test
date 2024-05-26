@@ -4,7 +4,7 @@
 set -e
 
 # Параметры
-APP_DIR="/home/$(whoami)/app"
+APP_DIR="/home/$(whoami)/deploy_test"
 DEPLOY_DIR="/var/www/app"
 SERVICE_NAME="flaskapp"
 
@@ -61,6 +61,9 @@ server {
     }
 }
 EOF
+# Удаление конфигурации Nginx по умолчанию
+echo "Removing default Nginx configuration..."
+sudo rm -f /etc/nginx/sites-enabled/default
 
 # Активация конфигурации Nginx
 echo "Activating Nginx configuration..."
