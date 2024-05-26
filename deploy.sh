@@ -1,47 +1,54 @@
 #!/bin/bash
 
-# Обновление и установка необходимых пакетов
+# Прекращаем выполнение скрипта при ошибках
+set -e
+
+# Параметры
+APP_DIR="/home/$(whoami)/app"
+DEPLOY_DIR="/var/www/app"
+SERVICE_NAME="flaskapp"
+
+# Установка необходимых пакетов
+echo "Updating package list and installing necessary packages..."
 sudo apt update
 sudo apt install -y python3-pip nginx
 
-# Установка Flask
-pip3 install Flask
+# Установка зависимостей Python
+echo "Installing Python dependencies..."
+pip3 install -r "$APP_DIR/requirements.txt"
 
-# Переход в домашний каталог пользователя и клонирование репозитория
-cd /home/$USER
-git clone https://github.com/ваш_пользователь/app.git app
+# Копирование приложения в директорию деплоя
+echo "Copying application files to the deployment directory..."
+sudo mkdir -p $DEPLOY_DIR
+sudo cp -r $APP_DIR/* $DEPLOY_DIR
+sudo chmod -R 755 $DEPLOY_DIR
 
-# Установка зависимостей приложения
-cd app
-pip3 install -r requirements.txt
-
-# Копирование приложения в директорию для деплоя
-sudo mkdir -p /var/www/app
-sudo cp -r /home/$USER/app/* /var/www/app
-sudo chmod -R 755 /var/www/app
-
-# Создание systemd юнита для приложения
-sudo bash -c 'cat > /etc/systemd/system/flaskapp.service <<EOF
+# Создание systemd unit файла
+echo "Creating systemd service file..."
+sudo bash -c "cat > /etc/systemd/system/$SERVICE_NAME.service" <<EOF
 [Unit]
 Description=Gunicorn instance to serve Flask app
 After=network.target
 
 [Service]
-User='$USER'
+User=$(whoami)
 Group=www-data
-WorkingDirectory=/var/www/app
-ExecStart=/usr/bin/python3 /var/www/app/app.py
+WorkingDirectory=$DEPLOY_DIR
+ExecStart=/usr/bin/python3 $DEPLOY_DIR/app.py
 
 [Install]
 WantedBy=multi-user.target
-EOF'
+EOF
 
-# Запуск и активация сервиса
-sudo systemctl start flaskapp
-sudo systemctl enable flaskapp
+# Перезапуск и включение сервиса
+echo "Starting and enabling the systemd service..."
+sudo systemctl daemon-reload
+sudo systemctl start $SERVICE_NAME
+sudo systemctl enable $SERVICE_NAME
 
-# Настройка Nginx для реверс-прокси
-sudo bash -c 'cat > /etc/nginx/sites-available/app <<EOF
+# Настройка Nginx
+echo "Configuring Nginx..."
+sudo bash -c "cat > /etc/nginx/sites-available/app" <<EOF
 server {
     listen 80;
 
@@ -53,13 +60,12 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
-EOF'
+EOF
 
-# Активировать конфигурацию Nginx
-sudo ln -s /etc/nginx/sites-available/app /etc/nginx/sites-enabled
+# Активация конфигурации Nginx
+echo "Activating Nginx configuration..."
+sudo ln -sf /etc/nginx/sites-available/app /etc/nginx/sites-enabled
 sudo nginx -t
 sudo systemctl restart nginx
 
-# Проверка статуса сервиса и вывод истории команд
-sudo systemctl status flaskapp
-history
+echo "Deployment completed successfully!"
