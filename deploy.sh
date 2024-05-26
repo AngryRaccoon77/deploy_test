@@ -1,69 +1,74 @@
 #!/bin/bash
 
-set -e
-
-# Конфигурация
-APP_USER=$(whoami)
-APP_DIR="/home/$APP_USER/app"
+# Переменные
+USER=$(whoami)
+APP_DIR="/home/$USER/app"
 DEPLOY_DIR="/var/www/app"
-SERVICE_NAME="flaskapp"
-SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME.service"
+SERVICE_FILE="/etc/systemd/system/flaskapp.service"
 NGINX_CONF="/etc/nginx/sites-available/app"
 NGINX_LINK="/etc/nginx/sites-enabled/app"
 
-# Установка зависимостей
+# Обновление и установка необходимых пакетов
 sudo apt update
 sudo apt install -y python3-pip nginx
 
-# Установка зависимостей Python
-pip3 install -r "$APP_DIR/requirements.txt"
+# Установка Flask
+pip3 install Flask
 
-# Подготовка папки для деплоя
+# Клонирование репозитория
+if [ ! -d "$APP_DIR" ]; then
+  git clone https://github.com/ваш_пользователь/app.git $APP_DIR
+else
+  echo "Директория $APP_DIR уже существует. Пропускаем клонирование."
+fi
+
+cd $APP_DIR
+pip3 install -r requirements.txt
+
+# Копирование приложения в директорию для деплоя
 sudo mkdir -p $DEPLOY_DIR
 sudo cp -r $APP_DIR/* $DEPLOY_DIR
 sudo chmod -R 755 $DEPLOY_DIR
 
-# Создание systemd сервиса
-sudo bash -c "cat > $SERVICE_FILE <<EOF
+# Создание файла сервиса systemd
+sudo bash -c "cat > $SERVICE_FILE <<EOL
 [Unit]
 Description=Gunicorn instance to serve Flask app
 After=network.target
 
 [Service]
-User=$APP_USER
+User=$USER
 Group=www-data
 WorkingDirectory=$DEPLOY_DIR
 ExecStart=/usr/bin/python3 $DEPLOY_DIR/app.py
 
 [Install]
 WantedBy=multi-user.target
-EOF"
+EOL"
 
-# Запуск и активация systemd сервиса
+# Запуск и активация сервиса
 sudo systemctl daemon-reload
-sudo systemctl start $SERVICE_NAME
-sudo systemctl enable $SERVICE_NAME
+sudo systemctl start flaskapp
+sudo systemctl enable flaskapp
 
 # Настройка Nginx
-sudo bash -c "cat > $NGINX_CONF <<EOF
+sudo bash -c "cat > $NGINX_CONF <<EOL
 server {
     listen 80;
 
     location / {
         proxy_pass http://127.0.0.1:5000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
-EOF"
+EOL"
 
-# Активировать конфигурацию Nginx
-if [ ! -L "$NGINX_LINK" ]; then
-    sudo ln -s $NGINX_CONF $NGINX_LINK
-fi
+# Активирование конфигурации Nginx
+sudo ln -sf $NGINX_CONF $NGINX_LINK
 sudo nginx -t
 sudo systemctl restart nginx
 
-echo "Deployment completed successfully!"
+echo "Развертывание завершено успешно!"
